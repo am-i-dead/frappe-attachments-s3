@@ -211,6 +211,11 @@ def file_upload_to_s3(doc, method):
     """
     s3_upload = S3Operations()
     path = doc.file_url
+    
+    # Skip if file is already in S3
+    if path and ('s3.' in path or 'frappe_s3_attachment' in path):
+        return
+        
     site_path = frappe.utils.get_site_path()
     if doc.doctype == "File" and not doc.attached_to_doctype:
         parent_doctype = doc.doctype
@@ -243,12 +248,6 @@ def file_upload_to_s3(doc, method):
         frappe.db.sql("""UPDATE `tabFile` SET file_url=%s, folder=%s,
             old_parent=%s, content_hash=%s WHERE name=%s""", (
             file_url, 'Home/Attachments', 'Home/Attachments', key, doc.name))
-
-        # From this PR, this code is unuseful
-        # https://github.com/zerodha/frappe-attachments-s3/pull/39
-        # if frappe.get_meta(parent_doctype).get('image_field'):
-        #     frappe.db.set_value(parent_doctype, parent_name, frappe.get_meta(
-        #         parent_doctype).get('image_field'), file_url)
 
         frappe.db.commit()
         doc.reload()
@@ -353,6 +352,19 @@ def migrate_existing_files():
 
 def delete_from_cloud(doc, method):
     """Delete file from s3"""
+    # Если это не документ File, получаем связанный файл
+    if doc.doctype != "File":
+        file_doc = frappe.get_doc("File", {"attached_to_doctype": doc.doctype, "attached_to_name": doc.name})
+        if not file_doc:
+            return
+        doc = file_doc
+
+    frappe.logger().debug(f"Deleting file from S3. Doc: {doc.name}, Content hash: {doc.content_hash}, File URL: {doc.file_url}")
+    
+    if not doc.content_hash:
+        frappe.logger().debug(f"No content_hash found for file {doc.name}")
+        return
+        
     s3 = S3Operations()
     s3.delete_from_s3(doc.content_hash)
 
