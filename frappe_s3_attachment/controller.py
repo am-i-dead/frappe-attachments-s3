@@ -216,6 +216,22 @@ def file_upload_to_s3(doc, method):
     if path and ('s3.' in path or 'frappe_s3_attachment' in path):
         return
         
+    # Check if file exists in library with same content_hash
+    if doc.content_hash:
+        existing_file = frappe.get_all("File", 
+            filters={"content_hash": doc.content_hash, "name": ["!=", doc.name]},
+            fields=["file_url", "content_hash"]
+        )
+        if existing_file:
+            # Use existing file's URL and content_hash
+            frappe.db.sql("""UPDATE `tabFile` SET file_url=%s, folder=%s,
+                old_parent=%s, content_hash=%s WHERE name=%s""", (
+                existing_file[0].file_url, 'Home/Attachments', 'Home/Attachments', 
+                existing_file[0].content_hash, doc.name))
+            frappe.db.commit()
+            doc.reload()
+            return
+            
     site_path = frappe.utils.get_site_path()
     if doc.doctype == "File" and not doc.attached_to_doctype:
         parent_doctype = doc.doctype
